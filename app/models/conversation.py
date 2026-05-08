@@ -1,0 +1,15 @@
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from datetime import datetime
+
+class Message(BaseModel):
+    role: str          # "user" hoặc "model"
+    content: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class Conversation(BaseModel):
+    user_id: int
+    username: Optional[str] = None
+    messages: List[Message] = []
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
