@@ -3,6 +3,12 @@ import re
 import requests
 import google.generativeai as genai
 from flask import Flask, request
+from dotenv import load_dotenv
+from pymongo import MongoClient
+
+load_dotenv() # Tải các biến từ file .env
+uri = os.getenv("MONGODB_URI")
+client = MongoClient(uri)
 
 app = Flask(__name__)
 
