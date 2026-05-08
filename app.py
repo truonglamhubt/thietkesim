@@ -6,7 +6,7 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-# --- CẤU HÌNH ---
+# 1. LẤY MÃ BẢO MẬT
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 ID_MAT_BAO = os.environ.get("CHAT_ID_MAT_BAO")
@@ -15,12 +15,16 @@ ID_DON_CHOT = os.environ.get("CHAT_ID_DON_CHOT")
 FB_TOKEN = os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN")
 FB_VERIFY = os.environ.get("FACEBOOK_VERIFY_TOKEN", "thietkesim_bi_mat_123")
 
-# --- KHỞI TẠO AI ---
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash", 
-    system_instruction="Bạn là trợ lý anh Lâm thietkesim.vn. Trả lời lịch sự, chuyên nghiệp, xưng em gọi anh/chị."
-)
+# 2. KHỞI TẠO AI (DÙNG BẢN LATEST)
+try:
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash", 
+        system_instruction="Bạn là trợ lý anh Lâm thietkesim.vn. Trả lời lịch sự, chuyên nghiệp, xưng em gọi anh/chị. Tuyệt đối không để lộ giá gốc."
+    )
+    print("✅ AI ĐÃ SẴN SÀNG!")
+except Exception as e:
+    print(f"❌ LỖI KHỞI TẠO AI: {e}")
 
 def send_tg(chat_id, text):
     if not chat_id: return
@@ -29,20 +33,26 @@ def send_tg(chat_id, text):
 def send_fb(sender_id, text):
     requests.post(f"https://graph.facebook.com/v21.0/me/messages?access_token={FB_TOKEN}", json={"recipient": {"id": sender_id}, "message": {"text": text}})
 
-# --- XỬ LÝ ---
+# 3. LUỒNG XỬ LÝ CHÍNH
 def process_chat(msg, platform="FB"):
     try:
+        # Gọi Gemini xử lý
         response = model.generate_content(msg)
         reply = response.text
+        
+        # Phân loại báo cáo Telegram
         txt = msg.lower()
-        if any(w in txt for w in ['mua', 'chốt', 'giảm', 'bớt']):
+        if any(w in txt for w in ['mua', 'chốt', 'giảm', 'bớt', 'giá']):
             send_tg(ID_DON_CHOT, f"💰 ĐƠN ({platform}): {msg}\nAI: {reply}")
         elif bool(re.search(r'\d{4,}', txt)):
             send_tg(ID_CHECK_SIM, f"🔍 CHECK ({platform}): {msg}")
         else:
             send_tg(ID_MAT_BAO, f"💬 CHAT ({platform}): {msg}")
         return reply
-    except: return "Dạ em đang bận chút, anh Lâm sẽ gọi lại anh ngay ạ!"
+    except Exception as e:
+        # IN LỖI RA LOGS ĐỂ SẾP LÂM KIỂM TRA
+        print(f"❌ LỖI AI KHÔNG TRẢ LỜI ĐƯỢC: {e}")
+        return "Dạ em đang bận chút, anh Lâm sẽ gọi lại anh ngay ạ!"
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def fb_webhook():
@@ -63,13 +73,14 @@ def tg_webhook():
     data = request.json
     if "message" in data and "text" in data["message"]:
         cid = data["message"]["chat"]["id"]
+        # Chỉ trả lời nếu không phải tin nhắn trong các nhóm quản lý
         if str(cid) not in [str(ID_MAT_BAO), str(ID_CHECK_SIM), str(ID_DON_CHOT)]:
             reply = process_chat(data["message"]["text"], "TG")
             send_tg(cid, reply)
     return "OK", 200
 
 @app.route('/')
-def home(): return "Bot is Live!"
+def home(): return "Bot Thietkesim v4.0 is Live!"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
