@@ -17,7 +17,7 @@ FB_VERIFY_TOKEN = os.environ.get("FACEBOOK_VERIFY_TOKEN", "thietkesim_bi_mat_123
 # --- 2. KHỞI TẠO BỘ NÃO GEMINI ---
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-pro",
+    model_name="gemini-1.5-pro-latest",
     system_instruction="""Bạn là Trợ lý AI kiêm Chuyên gia tư vấn SIM số đẹp của thietkesim.vn.
     Giọng điệu: Thân thiện, chuyên nghiệp, luôn xưng "em" và gọi khách là "anh/chị". 
     Nhiệm vụ: Dựa vào dữ liệu hệ thống cấp, báo giá cho khách. 
