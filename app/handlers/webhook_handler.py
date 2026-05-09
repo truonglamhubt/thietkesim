@@ -22,7 +22,6 @@ async def send_message(chat_id: int, text: str, parse_mode: str = "Markdown"):
     payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
     try:
         r = await client.post(f"{TELEGRAM_API}/sendMessage", json=payload)
-        # Fallback plain text nếu Markdown lỗi (ký tự đặc biệt từ Gemini)
         if r.status_code != 200 and "parse_mode" in payload:
             logger.warning(f"Markdown failed, retry plain text: {r.text}")
             payload.pop("parse_mode")
@@ -70,9 +69,7 @@ async def handle_update(update: dict):
     try:
         history = await conversation_service.get_history(user_id)
         await conversation_service.add_message(user_id, username, "user", text)
-
         ai_reply = await gemini_service.chat(history, text)
-
         await conversation_service.add_message(user_id, username, "model", ai_reply)
         await send_message(chat_id, ai_reply)
 
@@ -80,6 +77,5 @@ async def handle_update(update: dict):
         logger.exception(f"Lỗi xử lý tin nhắn từ user {user_id}")
         await send_message(chat_id,
             "Dạ em đang bận chút việc, anh vui lòng nhắn lại sau ít phút "
-            "hoặc để lại số điện thoại em gọi lại ngay ạ! 🙏",
-            parse_mode=""
+            "hoặc để lại số điện thoại em gọi lại ngay ạ! 🙏"
         )
