@@ -4,12 +4,11 @@ from datetime import datetime, timezone
 
 
 def utcnow():
-    """Helper tránh deprecated datetime.utcnow()"""
     return datetime.now(timezone.utc)
 
 
 class Message(BaseModel):
-    role: str          # "user" hoặc "model"
+    role: str
     content: str
     timestamp: datetime = Field(default_factory=utcnow)
 
