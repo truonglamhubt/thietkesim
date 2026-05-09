@@ -1,10 +1,11 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thiết kế sim số đẹp, am hiểu sâu về phong thủy số học, tâm lý học và đời sống. Bạn làm việc cho thietkesim.vn.
 
@@ -34,40 +35,38 @@ SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thiết kế sim số đẹp,
 - Khi khách hỏi giá hoặc muốn mua: nhắn "Để mình kết nối bạn với chuyên viên tư vấn trực tiếp nhé!"
 - Khi khách đã sẵn sàng tư vấn chuyên sâu: hỏi họ tên, ngày sinh, nghề nghiệp"""
 
-model = genai.GenerativeModel(
-    model_name=settings.GEMINI_MODEL,
-    system_instruction=SYSTEM_PROMPT
-)
 
-
-def _sanitize_history(history: list[dict]) -> list[dict]:
-    """
-    Gemini yêu cầu history xen kẽ user/model, bắt đầu bằng user.
-    Hàm này loại bỏ các tin trùng role liên tiếp để tránh crash.
-    """
+def _sanitize_history(history: list[dict]) -> list[types.Content]:
+    """Chuyển history DB → Gemini format, đảm bảo xen kẽ user/model."""
     sanitized = []
     for msg in history:
         role = msg.get("role")
         content = msg.get("content", "").strip()
         if not content:
-            continue  # Bỏ qua tin rỗng
-        if sanitized and sanitized[-1]["role"] == role:
-            continue  # Bỏ qua nếu role trùng liên tiếp
-        sanitized.append({"role": role, "parts": [content]})
-
-    # Gemini history phải bắt đầu bằng "user"
-    while sanitized and sanitized[0]["role"] != "user":
+            continue
+        if sanitized and sanitized[-1].role == role:
+            continue
+        sanitized.append(types.Content(
+            role=role,
+            parts=[types.Part(text=content)]
+        ))
+    while sanitized and sanitized[0].role != "user":
         sanitized.pop(0)
-
     return sanitized
 
 
 async def chat(history: list[dict], user_message: str) -> str:
-    """
-    Gửi tin nhắn tới Gemini kèm lịch sử hội thoại.
-    history: list of {"role": "user"/"model", "content": "..."}
-    """
+    """Gửi tin nhắn tới Gemini kèm lịch sử hội thoại."""
     gemini_history = _sanitize_history(history)
-    chat_session = model.start_chat(history=gemini_history)
-    response = await chat_session.send_message_async(user_message)
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=gemini_history + [types.Content(
+            role="user",
+            parts=[types.Part(text=user_message)]
+        )],
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0.8,
+        )
+    )
     return response.text
