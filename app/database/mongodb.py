@@ -14,7 +14,6 @@ db_state = Database()
 
 
 async def connect_db():
-    """Kết nối MongoDB Atlas khi app khởi động."""
     try:
         db_state.client = AsyncIOMotorClient(
             settings.MONGODB_URI,
@@ -31,7 +30,6 @@ async def connect_db():
 
 
 async def close_db():
-    """Đóng kết nối khi app shutdown."""
     if db_state.client:
         db_state.client.close()
         logger.info("MongoDB connection closed")
