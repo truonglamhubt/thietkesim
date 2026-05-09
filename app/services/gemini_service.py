@@ -1,11 +1,11 @@
-from google import genai
-from google.genai import types
+import asyncio
+import google.generativeai as genai
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
+genai.configure(api_key=settings.GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thiết kế sim số đẹp, am hiểu sâu về phong thủy số học, tâm lý học và đời sống. Bạn làm việc cho thietkesim.vn.
 
@@ -36,37 +36,58 @@ SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thiết kế sim số đẹp,
 - Khi khách đã sẵn sàng tư vấn chuyên sâu: hỏi họ tên, ngày sinh, nghề nghiệp"""
 
 
-def _sanitize_history(history: list[dict]) -> list[types.Content]:
-    """Chuyển history DB → Gemini format, đảm bảo xen kẽ user/model."""
-    sanitized = []
-    for msg in history:
-        role = msg.get("role")
-        content = msg.get("content", "").strip()
-        if not content:
-            continue
-        if sanitized and sanitized[-1].role == role:
-            continue
-        sanitized.append(types.Content(
-            role=role,
-            parts=[types.Part(text=content)]
+def _build_full_prompt(history: list[dict], user_message: str) -> str:
+    """Ghép history + tin nhắn mới thành 1 prompt hoàn chỉnh."""
+    prompt = f"{SYSTEM_PROMPT}\n\n"
+    if history:
+        history_lines = []
+        for msg in history[-10:]:  # Lấy 10 tin gần nhất
+            role_label = "Khách" if msg.get("role") == "user" else "Tư vấn viên"
+            history_lines.append(f"{role_label}: {msg.get('content', '')}")
+        prompt += "LỊCH SỬ HỘI THOẠI:\n" + "\n".join(history_lines) + "\n\n"
+    prompt += f"KHÁCH NHẮN: {user_message}\nTƯ VẤN VIÊN TRẢ LỜI:"
+    return prompt
+
+
+def _fetch_gemini_reply(full_prompt: str) -> str:
+    """Gọi Gemini API (sync) — tự động chọn model khả dụng."""
+    try:
+        # Lấy danh sách model API key này được phép dùng
+        allowed = [
+            m.name for m in genai.list_models()
+            if "generateContent" in m.supported_generation_methods
+        ]
+        if not allowed:
+            return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
+
+        # Ưu tiên flash → 1.5 → các model khác
+        allowed.sort(key=lambda x: (
+            0 if "flash" in x else 1,
+            0 if "1.5" in x else 1
         ))
-    while sanitized and sanitized[0].role != "user":
-        sanitized.pop(0)
-    return sanitized
+
+        last_error = ""
+        for model_name in allowed:
+            try:
+                model = genai.GenerativeModel(model_name)
+                config = genai.types.GenerationConfig(temperature=0.8)
+                response = model.generate_content(full_prompt, generation_config=config)
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        logger.error(f"Tất cả model thất bại. Lỗi cuối: {last_error}")
+        return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
+
+    except Exception as e:
+        logger.error(f"Gemini error: {e}")
+        return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
 
 
 async def chat(history: list[dict], user_message: str) -> str:
     """Gửi tin nhắn tới Gemini kèm lịch sử hội thoại."""
-    gemini_history = _sanitize_history(history)
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=gemini_history + [types.Content(
-            role="user",
-            parts=[types.Part(text=user_message)]
-        )],
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            temperature=0.8,
-        )
-    )
-    return response.text
+    full_prompt = _build_full_prompt(history, user_message)
+    # Chạy sync Gemini trong thread riêng để không block FastAPI
+    return await asyncio.to_thread(_fetch_gemini_reply, full_prompt)
