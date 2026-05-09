@@ -16,17 +16,35 @@ model = genai.GenerativeModel(
     system_instruction=SYSTEM_PROMPT
 )
 
+
+def _sanitize_history(history: list[dict]) -> list[dict]:
+    """
+    Gemini yêu cầu history xen kẽ user/model, bắt đầu bằng user.
+    Hàm này loại bỏ các tin trùng role liên tiếp để tránh crash.
+    """
+    sanitized = []
+    for msg in history:
+        role = msg.get("role")
+        content = msg.get("content", "").strip()
+        if not content:
+            continue  # Bỏ qua tin rỗng
+        if sanitized and sanitized[-1]["role"] == role:
+            continue  # Bỏ qua nếu role trùng liên tiếp
+        sanitized.append({"role": role, "parts": [content]})
+
+    # Gemini history phải bắt đầu bằng "user"
+    while sanitized and sanitized[0]["role"] != "user":
+        sanitized.pop(0)
+
+    return sanitized
+
+
 async def chat(history: list[dict], user_message: str) -> str:
     """
     Gửi tin nhắn tới Gemini kèm lịch sử hội thoại.
     history: list of {"role": "user"/"model", "content": "..."}
     """
-    # Chuyển định dạng DB → Gemini format
-    gemini_history = [
-        {"role": msg["role"], "parts": [msg["content"]]}
-        for msg in history
-    ]
-
+    gemini_history = _sanitize_history(history)
     chat_session = model.start_chat(history=gemini_history)
     response = await chat_session.send_message_async(user_message)
     return response.text
