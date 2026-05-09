@@ -1,16 +1,10 @@
-# Environment variables - KHÔNG commit lên GitHub
 .env
 .env.local
-.env.production
-
-# Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
 *.egg-info/
-
-# IDE
 .vscode/
 .idea/
