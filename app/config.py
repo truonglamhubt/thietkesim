@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     BASE_URL: str
     WEBHOOK_SECRET: str = secrets.token_hex(16)
     MAX_HISTORY: int = 20
-    GEMINI_MODEL: str = "gemini-2.0-flash"
     BOT_NAME: str = "AI Assistant"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
