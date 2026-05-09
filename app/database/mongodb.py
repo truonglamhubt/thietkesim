@@ -18,7 +18,9 @@ async def connect_db():
     try:
         db_state.client = AsyncIOMotorClient(
             settings.MONGODB_URI,
-            serverSelectionTimeoutMS=5000
+            serverSelectionTimeoutMS=10000,
+            tls=True,
+            tlsAllowInvalidCertificates=False
         )
         db_state.db = db_state.client.chatbot
         await db_state.db.conversations.create_index("user_id", unique=True)
