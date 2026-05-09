@@ -1,11 +1,10 @@
-import asyncio
-import google.generativeai as genai
+import httpx
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
+GEMINI_REST_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thiết kế sim số đẹp, am hiểu sâu về phong thủy số học, tâm lý học và đời sống. Bạn làm việc cho thietkesim.vn.
 
@@ -36,58 +35,44 @@ SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thiết kế sim số đẹp,
 - Khi khách đã sẵn sàng tư vấn chuyên sâu: hỏi họ tên, ngày sinh, nghề nghiệp"""
 
 
-def _build_full_prompt(history: list[dict], user_message: str) -> str:
-    """Ghép history + tin nhắn mới thành 1 prompt hoàn chỉnh."""
-    prompt = f"{SYSTEM_PROMPT}\n\n"
-    if history:
-        history_lines = []
-        for msg in history[-10:]:  # Lấy 10 tin gần nhất
-            role_label = "Khách" if msg.get("role") == "user" else "Tư vấn viên"
-            history_lines.append(f"{role_label}: {msg.get('content', '')}")
-        prompt += "LỊCH SỬ HỘI THOẠI:\n" + "\n".join(history_lines) + "\n\n"
-    prompt += f"KHÁCH NHẮN: {user_message}\nTƯ VẤN VIÊN TRẢ LỜI:"
-    return prompt
+async def chat(history: list[dict], user_message: str) -> str:
+    """Gọi Gemini REST API trực tiếp qua httpx — tránh lỗi region của SDK."""
+    # Build history theo định dạng REST API
+    contents = []
+    for msg in history[-10:]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "").strip()
+        if content:
+            contents.append({"role": role, "parts": [{"text": content}]})
 
+    # Đảm bảo history bắt đầu bằng "user"
+    while contents and contents[0]["role"] != "user":
+        contents.pop(0)
 
-def _fetch_gemini_reply(full_prompt: str) -> str:
-    """Gọi Gemini API (sync) — tự động chọn model khả dụng."""
+    # Thêm tin nhắn hiện tại
+    contents.append({"role": "user", "parts": [{"text": user_message}]})
+
+    payload = {
+        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": contents,
+        "generationConfig": {"temperature": 0.8, "maxOutputTokens": 1024}
+    }
+
     try:
-        # Lấy danh sách model API key này được phép dùng
-        allowed = [
-            m.name for m in genai.list_models()
-            if "generateContent" in m.supported_generation_methods
-        ]
-        if not allowed:
-            return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                GEMINI_REST_URL,
+                json=payload,
+                params={"key": settings.GEMINI_API_KEY}
+            )
+            data = r.json()
 
-        # Ưu tiên flash → 1.5 → các model khác
-        allowed.sort(key=lambda x: (
-            0 if "flash" in x else 1,
-            0 if "1.5" in x else 1
-        ))
+            if r.status_code != 200:
+                logger.error(f"Gemini REST error {r.status_code}: {data}")
+                return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
 
-        last_error = ""
-        for model_name in allowed:
-            try:
-                model = genai.GenerativeModel(model_name)
-                config = genai.types.GenerationConfig(temperature=0.8)
-                response = model.generate_content(full_prompt, generation_config=config)
-                if response and response.text:
-                    return response.text.strip()
-            except Exception as e:
-                last_error = str(e)
-                continue
-
-        logger.error(f"Tất cả model thất bại. Lỗi cuối: {last_error}")
-        return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
     except Exception as e:
-        logger.error(f"Gemini error: {e}")
+        logger.exception(f"Gemini request failed: {e}")
         return "Dạ em đang bận chút việc, anh/chị vui lòng nhắn lại sau ít phút ạ!"
-
-
-async def chat(history: list[dict], user_message: str) -> str:
-    """Gửi tin nhắn tới Gemini kèm lịch sử hội thoại."""
-    full_prompt = _build_full_prompt(history, user_message)
-    # Chạy sync Gemini trong thread riêng để không block FastAPI
-    return await asyncio.to_thread(_fetch_gemini_reply, full_prompt)
