@@ -7,26 +7,40 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 
+# ── Shared HTTP client ────────────────────────────────────────────────────────
+
+_http_client: httpx.AsyncClient = None
+
+def get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=30.0)
+    return _http_client
+
 # ── Telegram helpers ──────────────────────────────────────────────────────────
 
 async def send_message(chat_id: int, text: str, parse_mode: str = "Markdown"):
-    """Gửi tin nhắn về Telegram."""
-    async with httpx.AsyncClient() as client:
-        r = await client.post(f"{TELEGRAM_API}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": parse_mode
-        })
-        if r.status_code != 200:
-            logger.error(f"Telegram send error: {r.text}")
+    """Gửi tin nhắn về Telegram. Tự fallback plain text nếu Markdown lỗi."""
+    client = get_http_client()
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+    r = await client.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+
+    # FIX: Nếu Markdown bị lỗi (Gemini trả về ký tự đặc biệt) → gửi lại plain text
+    if r.status_code != 200 and parse_mode:
+        logger.warning(f"Markdown parse failed, retrying as plain text. Error: {r.text}")
+        payload.pop("parse_mode")
+        r = await client.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+
+    if r.status_code != 200:
+        logger.error(f"Telegram send error: {r.text}")
 
 async def send_typing(chat_id: int):
     """Hiển thị trạng thái 'đang gõ...'."""
-    async with httpx.AsyncClient() as client:
-        await client.post(f"{TELEGRAM_API}/sendChatAction", json={
-            "chat_id": chat_id,
-            "action": "typing"
-        })
+    client = get_http_client()
+    await client.post(f"{TELEGRAM_API}/sendChatAction", json={
+        "chat_id": chat_id,
+        "action": "typing"
+    })
 
 # ── Command handlers ──────────────────────────────────────────────────────────
 
@@ -104,4 +118,4 @@ async def handle_update(update: dict):
 
     except Exception as e:
         logger.exception(f"Error handling message from user {user_id}")
-        await send_message(chat_id, "❌ Có lỗi xảy ra, vui lòng thử lại sau.")
+        await send_message(chat_id, "❌ Có lỗi xảy ra, vui lòng thử lại sau.", parse_mode="")
