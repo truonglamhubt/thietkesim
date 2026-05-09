@@ -30,16 +30,19 @@ app = FastAPI(title="Telegram AI Bot", version="1.0.0", lifespan=lifespan)
 
 async def setup_webhook():
     webhook_url = f"{settings.BASE_URL}/webhook/{settings.WEBHOOK_SECRET}"
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/setWebhook",
-            json={"url": webhook_url, "drop_pending_updates": True}
-        )
-        data = r.json()
-        if data.get("ok"):
-            logger.info(f"✅ Webhook registered: {webhook_url}")
-        else:
-            logger.error(f"❌ Webhook failed: {data}")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/setWebhook",
+                json={"url": webhook_url, "drop_pending_updates": True}
+            )
+            data = r.json()
+            if data.get("ok"):
+                logger.info(f"✅ Webhook registered: {webhook_url}")
+            else:
+                logger.error(f"❌ Webhook failed: {data}")
+    except Exception as e:
+        logger.error(f"❌ Webhook setup error: {e}")
 
 
 @app.get("/health")
