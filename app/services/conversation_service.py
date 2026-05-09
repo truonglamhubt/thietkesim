@@ -11,7 +11,6 @@ def utcnow():
 
 
 async def get_history(user_id: int) -> list[dict]:
-    """Lấy lịch sử hội thoại gần nhất của user."""
     db = get_db()
     doc = await db.conversations.find_one(
         {"user_id": user_id},
@@ -23,21 +22,13 @@ async def get_history(user_id: int) -> list[dict]:
 
 
 async def add_message(user_id: int, username: str, role: str, content: str):
-    """Thêm 1 tin nhắn vào lịch sử của user."""
     db = get_db()
-    message = {
-        "role": role,
-        "content": content,
-        "timestamp": utcnow()
-    }
+    message = {"role": role, "content": content, "timestamp": utcnow()}
     await db.conversations.update_one(
         {"user_id": user_id},
         {
             "$push": {"messages": message},
-            "$set": {
-                "username": username,
-                "updated_at": utcnow()
-            },
+            "$set": {"username": username, "updated_at": utcnow()},
             "$setOnInsert": {"created_at": utcnow()}
         },
         upsert=True
@@ -45,7 +36,6 @@ async def add_message(user_id: int, username: str, role: str, content: str):
 
 
 async def clear_history(user_id: int):
-    """Xóa toàn bộ lịch sử của user."""
     db = get_db()
     await db.conversations.update_one(
         {"user_id": user_id},
@@ -54,7 +44,6 @@ async def clear_history(user_id: int):
 
 
 async def get_stats(user_id: int) -> dict:
-    """Thống kê hội thoại của user."""
     db = get_db()
     doc = await db.conversations.find_one({"user_id": user_id})
     if not doc:
